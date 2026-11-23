@@ -103,3 +103,62 @@ CI verifies frontend build, Python syntax and image build. GitHub secrets: `VM_H
 ## Limits
 
 No real VM/TimescaleDB, Raspberry Pi MQTT feed or full Docker runtime was provided in this conversation, so they cannot be certified end-to-end here. The original frontend synthetic replay sources are retained as unused reference modules; the active boot path does not import them or fall back to fabricated observations. Live forecast accuracy requires representative ongoing data, data quality checks, and measured validation.
+
+one MQTT broker on the VM, one shared PostgreSQL/TimescaleDB instance, three GitHub repositories, and separate Docker Compose deployments for ingestion and dashboard services. This keeps ownership clear, avoids duplicate database writes, and lets you evolve real-time analytics independently of sensor collection.
+
+6. Final implementation checklist
+Implementation progress
+
+0 / 25 completed
+
+
+
+Raspberry Pi repo
+0/6
+[ ] Move mqtt_publish_helper.py into the existing Pi repository
+[ ] Add MQTT settings to each node's .env
+[ ] Implement authenticated TLS publishing and reconnect behavior
+[ ] Publish the same event ID and payload through MQTT and HTTP
+[ ] Preserve existing SQLite buffering and HTTP ingestion
+[ ] Update Raspberry Pi GitHub Actions deployment
+
+
+Ingestion service repo
+0/5
+[ ] Keep the ingestion API separate from the dashboard
+[ ] Verify city, location and node database relationships
+[ ] Persist actual GPS coordinates and timestamps
+[ ] Add event idempotency and missing-value handling
+[ ] Grant the dashboard read-only measurement permissions
+
+
+Web dashboard repo
+0/9
+[ ] Remove raspberry_pi/ and integrations/existing_ingestion_service/
+[ ] Select one central MQTT broker and secure it
+[ ] Configure the dashboard MQTT listener to subscribe to that broker
+[ ] Prefer fresh MQTT readings over stale DB values in the Now view
+[ ] Integrate live MQTT data into ML forecasting inputs
+[ ] Implement event-triggered or debounced ML forecast refresh
+[ ] Separate historical snapshots from lookback-window queries
+[ ] Verify admin login, public dashboards and bilingual pages
+[ ] Update Docker Compose, .env and GitHub Actions
+
+
+End-to-end validation
+0/5
+[ ] Verify sensor → ingestion API → TimescaleDB
+[ ] Verify sensor → MQTT → Redis → live dashboard
+[ ] Verify database + recent MQTT → ML forecast → frontend
+[ ] Check offline recovery, duplicates, stale events and reconnects
+[ ] Test all four deployed nodes and all three city views
+
+ Copy checklist
+7. Recommended deployment order
+Deploy and test the applications in this sequence:
+1. PostgreSQL and ingestion service — verify that environmental measurements are correctly persisted.
+2. MQTT broker — configure authentication, TLS and network access.
+3. Raspberry Pi nodes — enable MQTT publishing while retaining HTTP.
+4. Web dashboard — connect Django to PostgreSQL and its MQTT listener to the broker.
+5. ML forecasting service — integrate live inputs, retrain or validate models, and verify predictions.
+6. GitHub Actions — automate independent deployments after tests pass.
