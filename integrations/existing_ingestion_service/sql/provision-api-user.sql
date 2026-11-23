@@ -1,0 +1,6 @@
+-- Example only. To provision a token, calculate SHA-256 from a strong random
+-- token generated locally, then insert its 64-character hex SHA-256 digest.
+-- Match username EXACTLY to NODE_NAME configured on the Raspberry Pi.
+-- Do not commit real hashes/tokens to source control.
+-- INSERT INTO smart_city_schema.api_users (username,full_name,token_hash)
+-- VALUES ('elb_1','Elbasan Pi 1','<sha256 hex digest>');

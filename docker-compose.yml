@@ -1,0 +1,42 @@
+services:
+  api:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    env_file: .env
+    environment:
+      MODEL_ROOT: /ml_forecast
+      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    restart: unless-stopped
+    depends_on: [redis]
+  mqtt-listener:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    command: ["python","manage.py","mqtt_listener"]
+    env_file: .env
+    environment: {MODEL_ROOT: /ml_forecast}
+    depends_on: [redis, mosquitto]
+    restart: unless-stopped
+  forecast-worker:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    command: ["python","manage.py","forecast_worker"]
+    env_file: .env
+    environment: {MODEL_ROOT: /ml_forecast}
+    depends_on: [redis]
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server","--save","60","1","--appendonly","yes"]
+    volumes: [redis_data:/data]
+    restart: unless-stopped
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes: ["./config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro", "mqtt_data:/mosquitto/data"]
+    ports: ["${MQTT_BIND_IP:-127.0.0.1}:1883:1883"]
+    restart: unless-stopped
+  web:
+    build: {context: ./frontend, dockerfile: Dockerfile.prod}
+    ports: ["${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8080}:80"]
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  redis_data: {}
+  mqtt_data: {}

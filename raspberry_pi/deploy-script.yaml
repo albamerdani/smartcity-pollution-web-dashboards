@@ -1,0 +1,136 @@
+name: Deploy Raspberry Pi Nodes
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy sensor script
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: elb_1
+            user: raspberry
+            home_path: /home/raspberry
+          - node: elb_2
+            user: raspberry
+            home_path: /home/raspberry
+          - node: korca_1
+            user: smartiot
+            home_path: /home/smartiot
+          - node: korca_2
+            user: smartiot
+            home_path: /home/smartiot
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+# REQUIRED if RPI_HOST_KORCA_2 is a Tailscale 100.x.x.x IP
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Resolve host
+        id: resolve_host
+        run: |
+          if [ "${{ matrix.node }}" = "elb_1" ]; then
+            echo "host=${{ secrets.RPI_HOST_ELB_1 }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.node }}" = "elb_2" ]; then
+            echo "host=${{ secrets.RPI_HOST_ELB_2 }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.node }}" = "korca_1" ]; then
+            echo "host=${{ secrets.RPI_HOST_KORCA_1 }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ matrix.node }}" = "korca_2" ]; then
+            echo "host=${{ secrets.RPI_HOST_KORCA_2 }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Diagnose SSH connectivity
+        env:
+          PI_HOST: ${{ steps.resolve_host.outputs.host }}
+          NODE: ${{ matrix.node }}
+        run: |
+          echo "=== Checking node: $NODE ==="
+
+          echo "=== Tailscale connection status ==="
+          tailscale status
+
+          echo "=== Testing Tailscale connectivity ==="
+          tailscale ping --c=2 "$PI_HOST" || true
+
+          echo "=== Testing SSH port 22 ==="
+          PI_HOST="$PI_HOST" python3 - <<'PY'
+          import os
+          import socket
+
+          host = os.environ["PI_HOST"]
+
+          try:
+              with socket.create_connection((host, 22), timeout=10):
+                  print("SUCCESS: SSH port 22 reachable")
+          except OSError as e:
+              print(f"FAILED: SSH port 22 unreachable: {e}")
+              raise
+          PY
+
+      - name: Copy files to Raspberry Pi
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ steps.resolve_host.outputs.host }}
+          username: ${{ matrix.user }}
+          key: ${{ secrets.RPI_SSH_KEY }}
+          source: "read_sensors.py,requirements.txt"
+          target: "${{ matrix.home_path }}/env-monitor"
+          overwrite: true
+          debug: true
+
+      - name: Create venv and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.resolve_host.outputs.host }}
+          username: ${{ matrix.user }}
+          key: ${{ secrets.RPI_SSH_KEY }}
+          script: |
+            set -e
+
+            APP_DIR="${{ matrix.home_path }}/env-monitor"
+
+            echo "Entering application directory: $APP_DIR"
+            cd "$APP_DIR"
+
+            echo "Creating virtualenv if missing..."
+            if [ ! -d ".venv" ]; then
+              python3 -m venv .venv
+            fi
+
+            echo "Upgrading pip..."
+            .venv/bin/pip install --upgrade pip setuptools wheel
+
+            echo "Installing Python packages..."
+            .venv/bin/pip install -r requirements.txt
+
+            echo "Reloading systemd configuration..."
+            sudo systemctl daemon-reload
+
+            echo "Enabling automatic startup after reboot..."
+            sudo systemctl enable env-monitor.service
+
+            echo "Restarting env-monitor service..."
+            sudo systemctl restart env-monitor.service
+
+            echo "Waiting for service startup..."
+            sleep 5
+
+            echo "Verifying automatic startup..."
+            sudo systemctl is-enabled --quiet env-monitor.service
+
+            echo "Verifying service is running..."
+            sudo systemctl is-active --quiet env-monitor.service
+
+            echo "Service status:"
+            sudo systemctl status env-monitor.service --no-pager
+
+            echo "Deployment completed successfully."

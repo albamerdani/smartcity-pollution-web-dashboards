@@ -1,0 +1,213 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SmartCity Environmental Ingestion API",
+    "version": "2.1.0",
+    "description": "Transactional ingestion into existing PostgreSQL 16 / TimescaleDB schema. One API key per node, whose api_users.username equals node.node_name. Returns HTTP 200 including on duplicate event IDs."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key"
+      }
+    },
+    "schemas": {
+      "IngestRequest": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "node",
+          "event_time",
+          "measurements"
+        ],
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "source_type": {
+            "const": "raspberry_pi_api"
+          },
+          "event_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "node": {
+            "type": "object",
+            "required": [
+              "node_name"
+            ],
+            "properties": {
+              "node_name": {
+                "type": "string"
+              },
+              "node_external_id": {
+                "type": "string"
+              },
+              "microcontroller_model": {
+                "type": "string"
+              },
+              "script_version": {
+                "type": "string"
+              }
+            }
+          },
+          "location": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "city_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "country_name": {
+                "type": "string"
+              },
+              "location_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "latitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "longitude": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elevation_m": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "gateway": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "measurements": {
+            "type": "object",
+            "description": "Known environmental_measurements columns; unavailable sensors should be null, never zero."
+          },
+          "raw_sensor_data": {
+            "type": "object"
+          },
+          "logs": {
+            "type": "object"
+          },
+          "uplink_message": {
+            "type": "object"
+          }
+        }
+      },
+      "IngestResponse": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "duplicate",
+              "measurement_already_exists"
+            ]
+          },
+          "node_name": {
+            "type": "string"
+          },
+          "measurement_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health/": {
+      "get": {
+        "summary": "Liveness endpoint",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/ingest/": {
+      "post": {
+        "summary": "Ingest a Raspberry Pi reading",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created or idempotent replay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON"
+          },
+          "401": {
+            "description": "Invalid API key"
+          },
+          "422": {
+            "description": "Invalid payload or unauthorized node identity"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    }
+  }
+}

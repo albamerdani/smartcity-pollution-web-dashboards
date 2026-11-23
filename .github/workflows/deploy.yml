@@ -1,0 +1,48 @@
+name: SmartCity dashboard CI/CD
+on:
+  push: {branches: [main]}
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: 'npm', cache-dependency-path: 'frontend/package-lock.json'}
+      - name: Compile Python
+        run: python -m compileall -q backend ml_forecast
+      - name: Frontend build
+        run: cd frontend && npm ci && npm run build
+      - name: Docker build
+        run: docker compose --env-file config/.env.example build
+  deploy:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST: ${{ secrets.VM_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VM_HOST" >> ~/.ssh/known_hosts
+      - name: Sync application to VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          rsync -az --delete --exclude .env --exclude .git --exclude node_modules --exclude '*.pyc' ./ "$VM_USER@$VM_HOST:/opt/smartcity-web/"
+      - name: Deploy Compose (VM .env stays on VM)
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          ssh "$VM_USER@$VM_HOST" 'set -e; cd /opt/smartcity-web; test -f .env; docker compose up -d --build; docker compose exec -T api python manage.py migrate --noinput; docker compose exec -T api python manage.py check'
